@@ -20,14 +20,56 @@ else:
 SONGS_DIR = BASE_DIR / "songs"
 OUTPUT_DIR = BASE_DIR / "output"
 
-INSTRUMENTS = {
-    "Grand Piano": 0,
-    "Oboe": 68,
-    "Clarinet": 71,
-    "Flute": 73
-}
+VERSION = "1.0"
 
-DEFAULT_INSTRUMENT = "Grand Piano"
+# 楽器の一覧は instruments.txt から読み込む（load_instruments が中身を入れる）
+INSTRUMENTS = {}
+INSTRUMENTS_FILE = BASE_DIR / "instruments.txt"
+
+DEFAULT_INSTRUMENTS_TEXT = """\
+# ==============================================
+#  GMusicB 楽器リスト
+# ==============================================
+# 書式:  楽器名 = プログラム番号（0〜127）
+#
+# ここに書いた楽器が、楽譜の「instrument: 楽器名」で使えます。
+# 楽器名は自由に決められます（大文字小文字は区別しません）。
+# プログラム番号は GM（General MIDI）の音色番号です（0始まり）。
+# 行頭に # を付けると、その行は無効になります。
+# 保存すると、次に楽譜を処理するとき（new / build / watch）に反映されます。
+# GMusicBを開き直す必要はありません。
+# ※ドラムには対応していません。
+
+Grand Piano = 0
+Oboe = 68
+Clarinet = 71
+Flute = 73
+
+# ↓ 使いたいものは、先頭の # を外してください
+# Electric Piano = 4
+# Vibraphone = 11
+# Marimba = 12
+# Acoustic Guitar = 24
+# Electric Guitar Clean = 27
+# Acoustic Bass = 32
+# Electric Bass = 33
+# Violin = 40
+# Viola = 41
+# Cello = 42
+# Contrabass = 43
+# Harp = 46
+# String Ensemble = 48
+# Trumpet = 56
+# Trombone = 57
+# Tuba = 58
+# French Horn = 60
+# Alto Sax = 65
+# Tenor Sax = 66
+# Bassoon = 70
+# Recorder = 74
+"""
+
+DEFAULT_INSTRUMENT_NAME = "Grand Piano"
 DEFAULT_VOLUME = 100
 DEFAULT_PAN = 64
 DEFAULT_VELOCITY = 100
@@ -43,6 +85,102 @@ class ScoreError(Exception):
     def __init__(self, messages):
         super().__init__("\n".join(messages))
         self.messages = messages
+
+
+class InstrumentsFileError(ScoreError):
+    """instruments.txt のエラー"""
+
+
+# ============================================================
+# 楽器リスト
+# ============================================================
+
+def load_instruments():
+    """instruments.txt から楽器一覧を読み込む（なければ初期の内容で作る）"""
+    INSTRUMENTS.clear()
+
+    if INSTRUMENTS_FILE.exists():
+        text = INSTRUMENTS_FILE.read_text(encoding="utf-8-sig")
+
+    else:
+        text = DEFAULT_INSTRUMENTS_TEXT
+
+        try:
+            INSTRUMENTS_FILE.write_text(text, encoding="utf-8")
+
+        except OSError:
+            pass  # 書き込めなくても、初期の内容でそのまま動かす
+
+    errors = []
+    used_names = set()
+
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        line = unicodedata.normalize("NFKC", raw_line)
+        line = re.sub(r"(^|\s)#.*$", "", line).strip()
+
+        if not line:
+            continue
+
+        name, separator, number_text = line.rpartition("=")
+        name = name.strip()
+
+        if not separator or not name:
+            errors.append(f"{lineno}行目: 「楽器名 = 番号」の形式で書いてください: {raw_line.strip()}")
+            continue
+
+        try:
+            number = int(number_text.strip())
+
+        except ValueError:
+            errors.append(f"{lineno}行目: 番号が整数ではありません: {number_text.strip()}")
+            continue
+
+        if not 0 <= number <= 127:
+            errors.append(f"{lineno}行目: 番号は0〜127で指定してください: {number}")
+            continue
+
+        if name.lower() in used_names:
+            errors.append(f"{lineno}行目: 同じ楽器名が重複しています: {name}")
+            continue
+
+        used_names.add(name.lower())
+        INSTRUMENTS[name] = number
+
+    if not errors and not INSTRUMENTS:
+        errors.append("楽器が1つも登録されていません。")
+
+    if errors:
+        INSTRUMENTS.clear()
+        raise InstrumentsFileError(errors)
+
+
+def reload_instruments():
+    """楽器リストを読み込み直す。エラーなら内容を表示してFalseを返す"""
+    try:
+        load_instruments()
+        return True
+
+    except InstrumentsFileError as e:
+        print(f"\ninstruments.txt にエラーがあります（{len(e.messages)}件）:")
+        for message in e.messages:
+            print(f"　・{message}")
+        print(f"場所: {INSTRUMENTS_FILE}")
+        return False
+
+
+def find_instrument(text):
+    """楽器名（大文字小文字は区別しない）から、登録されている名前を返す"""
+    key = text.strip().lower()
+
+    for name in INSTRUMENTS:
+        if name.lower() == key:
+            return name
+
+    return None
+
+
+def default_instrument():
+    return find_instrument(DEFAULT_INSTRUMENT_NAME) or next(iter(INSTRUMENTS))
 
 
 # ============================================================
@@ -251,7 +389,7 @@ def parse_score(text):
 
                 current = {
                     "name": name,
-                    "instrument": DEFAULT_INSTRUMENT,
+                    "instrument": default_instrument(),
                     "volume": DEFAULT_VOLUME,
                     "pan": DEFAULT_PAN,
                     "expression": [],
@@ -295,13 +433,15 @@ def parse_score(text):
                     )
 
                 if key == "instrument":
-                    if value not in INSTRUMENTS:
+                    instrument_name = find_instrument(value)
+
+                    if instrument_name is None:
                         raise ValueError(
                             f"対応していない楽器です: {value}"
                             f"（使えるもの: {', '.join(INSTRUMENTS)}）"
                         )
 
-                    current["instrument"] = value
+                    current["instrument"] = instrument_name
 
                 else:
                     number = parse_int(value, key)
@@ -550,6 +690,9 @@ def build(project_arg):
     """楽譜ファイルからMIDIを生成する。成功したらTrue"""
     project_name, path = resolve_score(project_arg)
 
+    if not reload_instruments():
+        return False
+
     if not path.exists():
         print(f"楽譜ファイルが見つかりません: {path}")
         print("先に new で作成してください。")
@@ -646,8 +789,10 @@ def input_instrument():
         if text.isdigit() and 1 <= int(text) <= len(names):
             return names[int(text) - 1]
 
-        if text in INSTRUMENTS:
-            return text
+        found = find_instrument(text)
+
+        if found is not None:
+            return found
 
         print("一覧にある番号または名前で入力してください。")
 
@@ -665,7 +810,8 @@ def input_yes_no(message):
         print("y か n で入力してください。")
 
 
-SCORE_GUIDE = """\
+def make_score_guide():
+    return """\
 # ==============================================
 #  GMusicB 楽譜ファイル
 # ==============================================
@@ -682,7 +828,7 @@ SCORE_GUIDE = """\
 # 音は上から順に、前の音の直後へ自動で並びます。
 # 途中に1行足したり消したりしても、後ろの音は自動でずれます。
 #
-# 【使える楽器】 """ + ", ".join(INSTRUMENTS) + """
+# 【使える楽器】 """ + ", ".join(INSTRUMENTS) + """（instruments.txt で追加できます）
 # 【Volume / Pan】 0～127（Panは64が中央）
 # ==============================================
 """
@@ -693,6 +839,9 @@ def new_project(project_name):
 
     if project_name.lower().endswith(".txt"):
         project_name = project_name[:-4]
+
+    if not reload_instruments():
+        return
 
     path = score_path(project_name)
 
@@ -719,7 +868,7 @@ def new_project(project_name):
         if not input_yes_no("もう1トラック作りますか？"):
             break
 
-    lines = [SCORE_GUIDE, f"tempo: {tempo}", ""]
+    lines = [make_score_guide(), f"tempo: {tempo}", ""]
 
     for name, instrument in tracks:
         lines += [
@@ -788,13 +937,13 @@ def run_command(command, project_arg):
 
 def menu_loop():
     while True:
-        print("\n=== GMusicB ===")
+        print(f"\n=== GMusicB v{VERSION} ===")
         print("1. new   : 新しい楽譜ファイルを作る")
         print("2. build : 楽譜からMIDIを作る")
         print("3. watch : 保存するたびに自動でMIDIを作る")
         print("q. 終了")
 
-        choice = input("番号を選んでください。").strip().lower()
+        choice = input("番号を選んでください:").strip().lower()
 
         if choice in ("q", "quit", "exit"):
             return
@@ -816,14 +965,17 @@ def menu_loop():
 def main():
     args = sys.argv[1:]
 
-    if args and args[0] in COMMANDS:
-        # 例: GMusicB.exe watch 楽譜.txt / GMusicB.exe new
+    if args and args[0] in ("-v", "--version"):
+        print(f"GMusicB v{VERSION}")
+
+    elif args and args[0] in COMMANDS:
+        # 例: GMusicB.exe watch 楽譜.txt
         command = args[0]
         project_arg = args[1] if len(args) >= 2 else choose_project(command != "new")
         run_command(command, project_arg)
 
     elif args:
-        # .txt をドラッグ&ドロップされた場合: そのままMIDI作成
+        # .txt をドロップされた場合: そのままMIDI作成
         run_command("build", args[0])
 
     else:
@@ -837,7 +989,7 @@ def run():
     except Exception as e:
         print(f"\n予期しないエラーが発生しました: {e}")
 
-    # exeをダブルクリック/ドロップで起動した場合、結果を読む前にウィンドウが閉じないようにする
+    # exeをドロップや引数付きで起動した場合、結果を読む前にウィンドウが閉じないようにする
     if getattr(sys, "frozen", False) and len(sys.argv) > 1:
         input("\nEnterキーを押すと閉じます...")
 

@@ -184,3 +184,6 @@ release/
 songs/
 output/
 *.mid
+
+instruments.txt
+version_info.txt
