@@ -7,9 +7,9 @@
 
 ## ダウンロード
 
-👉 **[最新版のダウンロードページ](https://github.com/ユーザー名/GMusicB/releases/latest)**
+👉 **[最新版のダウンロードページ](https://github.com/OukaTakuO/GMusicB/releases/latest)**
 
-ページ下の **Assets** を開いて、**`GMusicB-v0.1.zip`** をダウンロードしてください。
+ページ下の **Assets** を開いて、**`GMusicB-v1.0.zip`** をダウンロードしてください。
 (`Source code` と書かれたファイルは、開発者向けなので必要ありません。)
 
 ## はじめかた
@@ -85,8 +85,8 @@ C#4 1 80               # 英語表記もOK。末尾の数字はベロシティ(�
 
 ## 不具合・要望
 
-[Issues](https://github.com/ユーザー名/GMusicB/issues) に書き込んでください。
-そのとき、**バージョン**(メニューの一番上に `GMusicB v0.2` のように出ます)と**画面に出たメッセージ**を書いてもらえると、原因を調べやすくなります。
+[Issues](https://github.com/OukaTakuO/GMusicB/issues) に書き込んでください。
+そのとき、**バージョン**(メニューの一番上に `GMusicB v1.0` のように出ます)と**画面に出たメッセージ**を書いてもらえると、原因を調べやすくなります。
 
 ## ライセンス
 
